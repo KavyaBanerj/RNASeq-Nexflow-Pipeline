@@ -1,7 +1,7 @@
 tasks:
-  - init: |
+  - name: Install Docker and Nextflow
+    init: |
       sudo apt-get update
       sudo apt-get install -y docker.io
       curl -s https://get.nextflow.io | bash
       sudo mv nextflow /usr/local/bin/
-    command: echo "Nextflow and Docker have been installed."
