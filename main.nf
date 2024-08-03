@@ -5,13 +5,12 @@ nextflow.enable.dsl=2
 // All parameters for the pipeline
 params.reads = "$PWD/data/reads/ENCSR000COQ1_{1,2}.fastq.gz" // Location of input reads
 params.outdir = "$PWD/results" // Output directory
-params.genome = "$PWD/genome.fa" // Path to the genome FASTA file
-params.gtf = "$PWD/annotations.gtf" // Path to the GTF file
+params.genome = "$PWD/data/refGenome/genome.fasta" // Path to the genome FASTA file
+params.gtf = "$PWD/data/refGenome/genome_annotation.gtf" // Path to the GTF file
 
 // Log
 log.info """\
-RNA-Seq Analysis Pipeline
-Version: 1.0
+RNA-Seq Analysis Pipeline - STARIndex and STARAlign Test
 Reads: ${params.reads}
 Output directory: ${params.outdir}
 Genome: ${params.genome}
@@ -63,10 +62,10 @@ process TrimGalore {
 process STARIndex {
     tag "STARIndex"
     container 'quay.io/biocontainers/star:2.7.8a--0'
+    publishDir "${params.outdir}/STARindex", mode: 'copy'
 
     input:
-    path genome_fasta
-    path gtf_file
+    path genome_fasta, path gtf_file
 
     output:
     path("STARindex"), emit: star_index
@@ -79,18 +78,21 @@ process STARIndex {
 }
 
 process STARAlign {
-    tag "${sample_id}_${date}"    // Tag for identifying the process
-    memory '64 GB'    // Memory allocation for the process
-    container 'quay.io/biocontainers/star:2.7.8a--0' // STAR container
+    tag "STARAlign on ${sample_id}"
+    memory '32 GB'
+    container 'quay.io/biocontainers/star:2.7.8a--0'
+    publishDir "${params.outdir}/aligned", mode: 'copy'
 
     input:
     tuple val(sample_id), path(trimmed_reads), path(star_index)
 
     output:
-    tuple val(sample_id), path("star_out/${sample_id}.Aligned.sortedByCoord.out.bam")
+    tuple val(sample_id), path("star_out/${sample_id}.Aligned.sortedByCoord.out.bam"), emit: sorted_bam
+    tuple val(sample_id), path("star_out/${sample_id}.Aligned.toTranscriptome.out.bam"), emit: transcriptome_bam
 
     script:
     """
+    mkdir -p star_out
     STAR --runThreadN 16 \
          --genomeDir ${star_index} \
          --readFilesIn ${trimmed_reads[0]} ${trimmed_reads[1]} \
@@ -119,16 +121,22 @@ process STARAlign {
          --chimJunctionOverhangMin 15 \
          --chimOutType Junctions WithinBAM SoftClip \
          --chimMainSegmentMultNmax 1
+
+    echo "STAR alignment completed for ${sample_id}"
+    ls -lh star_out
     """
 }
-
 
 // Define the workflow
 workflow {
     // Define channels
     reads_ch = Channel.fromFilePairs(params.reads, checkIfExists: true, size: 2)
+    genome_ch = Channel.value(file(params.genome))
+    gtf_ch = Channel.value(file(params.gtf))
 
-    // Call FastQC
+    star_index_ch = STARIndex(genome_ch, gtf_ch)
+
+       // Call FastQC
     reads_ch.map { sample_id, files -> tuple(sample_id, files) }
             .set { fastqc_ch }
 
@@ -140,20 +148,9 @@ workflow {
 
     TrimGalore(trimmed_ch)
 
-
-    // STAR indexing and alignment
-    star_index_ch = genome_ch.mix(gtf_ch)
-                      .ifEmpty { error 'No genome or GTF file found' }
-                      .ifExists { dir("STARindex").exists() }
-                      .set { star_index_ch }
-
-    // Creating STAR index
-    STARIndex(genome_ch, gtf_ch)
-      .ifEmpty { error 'No genome or GTF file found' }
-      .ifExists { dir("STARindex").exists() }
-
-    trimmed_ch.map { sample_id, trimmed_files -> tuple(sample_id, trimmed_files, star_index_ch) }
-              .set { star_align_ch }
+    trimmed_reads_ch.combine(star_index_ch).map { sample_id, files, star_index -> tuple(sample_id, files, star_index) }
+        .set { star_align_ch }
 
     STARAlign(star_align_ch)
 }
+

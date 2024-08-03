@@ -8,4 +8,5 @@
 .nextflow.log.7
 .nextflow.log.8
 .nexflow/
-.gitpod.yml
+work/
+refGenome/
