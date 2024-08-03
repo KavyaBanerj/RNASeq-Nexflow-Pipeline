@@ -6,15 +6,17 @@ nextflow.enable.dsl=2
 params.reads = "$PWD/data/reads/ENCSR000COQ1_{1,2}.fastq.gz" // Location of input reads
 params.outdir = "$PWD/results" // Output directory
 params.genome = "$PWD/data/refGenome/genome.fasta" // Path to the genome FASTA file
-params.gtf = "$PWD/data/refGenome/genome_annotation.gtf" // Path to the GTF file
+params.gtf = "$PWD/data/refGenome/genome.gtf" // Path to the GTF file
+params.transcripts = "$PWD/data/refGenome/transcript.fasta" // Path to the transcriptome FASTA file
 
 // Log
 log.info """\
-RNA-Seq Analysis Pipeline - STARIndex and STARAlign Test
+RNA-Seq Analysis Pipeline - STARIndex, STARAlign, and Salmon
 Reads: ${params.reads}
 Output directory: ${params.outdir}
 Genome: ${params.genome}
 GTF: ${params.gtf}
+Transcripts: ${params.transcripts}
 """
 
 // Create output directories if they do not exist
@@ -65,7 +67,8 @@ process STARIndex {
     publishDir "${params.outdir}/STARindex", mode: 'copy'
 
     input:
-    path genome_fasta, path gtf_file
+    path genome_fasta
+    path gtf_file
 
     output:
     path("STARindex"), emit: star_index
@@ -73,13 +76,13 @@ process STARIndex {
     script:
     """
     mkdir -p STARindex
-    STAR --runThreadN 8 --runMode genomeGenerate --genomeDir STARindex --genomeFastaFiles ${genome_fasta} --sjdbGTFfile ${gtf_file} --sjdbOverhang 100
+    STAR --runThreadN 8 --runMode genomeGenerate --genomeDir STARindex --genomeFastaFiles ${genome_fasta} --sjdbGTFfile ${gtf_file} --sjdbOverhang 100 --genomeSAindexNbases 11
     """
 }
 
 process STARAlign {
     tag "STARAlign on ${sample_id}"
-    memory '32 GB'
+    memory '64 GB'
     container 'quay.io/biocontainers/star:2.7.8a--0'
     publishDir "${params.outdir}/aligned", mode: 'copy'
 
@@ -127,16 +130,46 @@ process STARAlign {
     """
 }
 
+process SalmonQuant {
+    tag "SalmonQuant on ${sample_id}"
+    container 'quay.io/biocontainers/salmon:1.5.1--h84f40af_0'
+    publishDir "${params.outdir}/salmon_quant", mode: 'copy'
+
+    input:
+    tuple val(sample_id), path(transcriptome_bam), val(transcript_file)
+
+    output:
+    path("${sample_id}_quant/quant.sf")
+    path("${sample_id}_quant/aux_info")
+    val "${sample_id}"
+
+    script:
+    """
+    echo "Transcript file path: ${transcript_file}"
+    echo "Checking if transcript file exists..."
+    abs_path=\$(readlink -f ${transcript_file})
+    ls -l \${abs_path}
+
+    if [ ! -f \${abs_path} ]; then
+        echo "Transcript file does not exist at \${abs_path}"
+        exit 1
+    fi
+
+    salmon quant -t \${abs_path} -l A -a ${transcriptome_bam} -o ./${sample_id}_quant --gcBias
+    """
+}
+
 // Define the workflow
 workflow {
     // Define channels
     reads_ch = Channel.fromFilePairs(params.reads, checkIfExists: true, size: 2)
     genome_ch = Channel.value(file(params.genome))
     gtf_ch = Channel.value(file(params.gtf))
+    transcript_ch = Channel.value(file(params.transcripts))
 
     star_index_ch = STARIndex(genome_ch, gtf_ch)
 
-       // Call FastQC
+    // Call FastQC
     reads_ch.map { sample_id, files -> tuple(sample_id, files) }
             .set { fastqc_ch }
 
@@ -148,9 +181,13 @@ workflow {
 
     TrimGalore(trimmed_ch)
 
-    trimmed_reads_ch.combine(star_index_ch).map { sample_id, files, star_index -> tuple(sample_id, files, star_index) }
+    trimmed_ch.combine(star_index_ch).map { sample_id, files, star_index -> tuple(sample_id, files, star_index) }
         .set { star_align_ch }
 
-    STARAlign(star_align_ch)
-}
+    star_output = STARAlign(star_align_ch)
 
+    star_output.transcriptome_bam.combine(transcript_ch).map { sample_id, bam, transcript_file -> tuple(sample_id, bam, transcript_file) }
+        .set { salmon_quant_ch }
+
+    SalmonQuant(salmon_quant_ch)
+}
