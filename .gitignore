@@ -25,5 +25,4 @@ results/qc/ENCSR000COQ1_2_fastqc.zip
 .nextflow/cache/1ccf32bb-4cda-4217-9ec9-d8f80cb67112/index.elated_thompson
 .nextflow/cache/1ccf32bb-4cda-4217-9ec9-d8f80cb67112/db/LOCK
 .nextflow/history
-data/refGenome/genome.fasta
-data/refGenome/genome_annotation.gtf
+data/refGenome/

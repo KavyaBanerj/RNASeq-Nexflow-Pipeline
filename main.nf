@@ -3,11 +3,26 @@
 nextflow.enable.dsl=2
 
 // All parameters for the pipeline
-params.reads = "$PWD/data/reads/ENCSR000COQ1_{1,2}.fastq.gz" // Location of input reads
-params.outdir = "$PWD/results" // Output directory
-params.genome = "$PWD/data/refGenome/genome.fasta" // Path to the genome FASTA file
-params.gtf = "$PWD/data/refGenome/genome.gtf" // Path to the GTF file
-params.transcripts = "$PWD/data/refGenome/transcript.fasta" // Path to the transcriptome FASTA file
+params.reads =  params.reads ?: "$PWD/data/reads/*{1,2}.fastq.gz" // Location of input reads
+params.outdir = params.outdir ?: "$PWD/results" // Output directory
+params.genome = params.genome ?: "$PWD/data/refGenome/genome.fasta" // Path to the genome FASTA file
+params.gtf = params.gtf ?: "$PWD/data/refGenome/genome.gtf" // Path to the GTF file
+params.transcripts = params.transcripts ?: "$PWD/data/refGenome/transcript.fasta"  // Path to the transcriptome FASTA file
+
+// Validate parameter types and provide defaults
+if (!params.containsKey('reads')) {
+    error "Parameter 'reads' is required"
+}
+
+if (!file(params.genome).exists()) {
+    error "Genome file not found: ${params.genome}"
+}
+if (!file(params.gtf).exists()) {
+    error "GTF file not found: ${params.gtf}"
+}
+if (!file(params.transcripts).exists()) {
+    error "Transcript file not found: ${params.transcripts}"
+}
 
 // Log
 log.info """\
@@ -39,9 +54,12 @@ process FastQC {
     script:
     """
     fastqc -o . ${reads[0]} ${reads[1]}
+
+     echo "FASTQC completed for ${sample_id}"
     """
 }
 
+// TrimGalore process for trimming low-quality reads
 process TrimGalore {
     tag "TrimGalore on ${sample_id}"
     container 'quay.io/biocontainers/trim-galore:0.6.6--hdfd78af_1'
@@ -58,9 +76,12 @@ process TrimGalore {
     trim_galore --paired --quality 20 --length 36 --gzip --output_dir . ${reads[0]} ${reads[1]}
     mv ${sample_id}_1_val_1.fq.gz ${sample_id}_1_trimmed.fq.gz
     mv ${sample_id}_2_val_2.fq.gz ${sample_id}_2_trimmed.fq.gz
+
+     echo "Trimmed Reads completed for ${sample_id}"
     """
 }
 
+// Creating Index for STAR alignment
 process STARIndex {
     tag "STARIndex"
     container 'quay.io/biocontainers/star:2.7.8a--0'
@@ -80,9 +101,10 @@ process STARIndex {
     """
 }
 
+// STAR Alignment process for creating aligned bam files
 process STARAlign {
     tag "STARAlign on ${sample_id}"
-    memory '64 GB'
+    memory '16 GB'
     container 'quay.io/biocontainers/star:2.7.8a--0'
     publishDir "${params.outdir}/aligned", mode: 'copy'
 
@@ -126,17 +148,17 @@ process STARAlign {
          --chimMainSegmentMultNmax 1
 
     echo "STAR alignment completed for ${sample_id}"
-    ls -lh star_out
     """
 }
 
+// Salmon for quantification on reads 
 process SalmonQuant {
     tag "SalmonQuant on ${sample_id}"
-    container 'quay.io/biocontainers/salmon:1.5.1--h84f40af_0'
+    container 'quay.io/biocontainers/salmon:1.10.3--hb7e2ac5_1'
     publishDir "${params.outdir}/salmon_quant", mode: 'copy'
 
     input:
-    tuple val(sample_id), path(transcriptome_bam), val(transcript_file)
+    tuple val(sample_id), path(transcriptome_bam), path(transcript_file)
 
     output:
     path("${sample_id}_quant/quant.sf")
@@ -145,21 +167,13 @@ process SalmonQuant {
 
     script:
     """
-    echo "Transcript file path: ${transcript_file}"
-    echo "Checking if transcript file exists..."
-    abs_path=\$(readlink -f ${transcript_file})
-    ls -l \${abs_path}
+    salmon quant -t ${transcript_file} -l A -a ${transcriptome_bam} -o ./${sample_id}_quant --gcBias
 
-    if [ ! -f \${abs_path} ]; then
-        echo "Transcript file does not exist at \${abs_path}"
-        exit 1
-    fi
-
-    salmon quant -t \${abs_path} -l A -a ${transcriptome_bam} -o ./${sample_id}_quant --gcBias
+    echo "Salmon Qauntification completed for ${sample_id}"
     """
 }
 
-// Define the workflow
+// Main workflow
 workflow {
     // Define channels
     reads_ch = Channel.fromFilePairs(params.reads, checkIfExists: true, size: 2)
@@ -179,13 +193,16 @@ workflow {
     reads_ch.map { sample_id, files -> tuple(sample_id, files) }
             .set { trimmed_ch }
 
+    // Trim Galore
     TrimGalore(trimmed_ch)
 
     trimmed_ch.combine(star_index_ch).map { sample_id, files, star_index -> tuple(sample_id, files, star_index) }
         .set { star_align_ch }
 
+    // STAR Align
     star_output = STARAlign(star_align_ch)
 
+    // Salmon Quant
     star_output.transcriptome_bam.combine(transcript_ch).map { sample_id, bam, transcript_file -> tuple(sample_id, bam, transcript_file) }
         .set { salmon_quant_ch }
 
