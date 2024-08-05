@@ -1,7 +1,7 @@
 
 # RNA-Seq QC and Quantification Pipeline
 
-This repository contains a Nextflow pipeline for RNA-Seq QC and quantification on pair-ended reads. The pipeline includes quality control, read trimming, alignment, and quantification steps.
+This repository contains a Nextflow pipeline for RNA-Seq QC and quantification on paired-end reads. The pipeline includes quality control, read trimming, alignment, and quantification steps.
 
 ## Pipeline Overview
 
