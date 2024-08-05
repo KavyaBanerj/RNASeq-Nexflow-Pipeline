@@ -86,7 +86,7 @@ Quantifies transcript abundance using Salmon using a transcript FASTA file.
 
 ## Dependencies
 
-The pipeline uses the following software containers from [Biocontainers] (https://biocontainers.pro/) :
+The pipeline uses the following software containers from [Biocontainers](https://biocontainers.pro/) :
 
 - **FastQC**: `quay.io/biocontainers/fastqc:0.12.1--hdfd78af_0`
 - **TrimGalore**: `quay.io/biocontainers/trim-galore:0.6.6--hdfd78af_1`
