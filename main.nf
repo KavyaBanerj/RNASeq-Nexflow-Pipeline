@@ -97,7 +97,7 @@ process STARIndex {
     script:
     """
     mkdir -p STARindex
-    STAR --runThreadN 8 --runMode genomeGenerate --genomeDir STARindex --genomeFastaFiles ${genome_fasta} --sjdbGTFfile ${gtf_file} --sjdbOverhang 100 --genomeSAindexNbases 11
+    STAR --runThreadN ${task.cpus} --runMode genomeGenerate --genomeDir STARindex --genomeFastaFiles ${genome_fasta} --sjdbGTFfile ${gtf_file} --sjdbOverhang 100 --genomeSAindexNbases 11
     """
 }
 
@@ -114,11 +114,16 @@ process STARAlign {
     output:
     tuple val(sample_id), path("star_out/${sample_id}.Aligned.sortedByCoord.out.bam"), emit: sorted_bam
     tuple val(sample_id), path("star_out/${sample_id}.Aligned.toTranscriptome.out.bam"), emit: transcriptome_bam
-
+    tuple val(sample_id), path("star_out/${sample_id}.Chimeric.out.junction")
+    tuple val(sample_id), path("star_out/${sample_id}.Log.final.out")
+    tuple val(sample_id), path("star_out/${sample_id}.Log.out")
+    tuple val(sample_id), path("star_out/${sample_id}.Log.progress.out")
+    tuple val(sample_id), path("star_out/${sample_id}.ReadsPerGene.out.tab")
+    tuple val(sample_id), path("star_out/${sample_id}.SJ.out.tab")
     script:
     """
     mkdir -p star_out
-    STAR --runThreadN 16 \
+    STAR --runThreadN ${task.cpus} \
          --genomeDir ${star_index} \
          --readFilesIn ${trimmed_reads[0]} ${trimmed_reads[1]} \
          --readFilesCommand zcat \
@@ -189,7 +194,7 @@ workflow {
 
     FastQC(fastqc_ch)
 
-    // Connect FastQC to Trim Galore (Note: We process reads directly without linking FastQC outputs)
+    // Connect reads to Trim Galore (Note: We process reads directly without linking FastQC outputs)
     reads_ch.map { sample_id, files -> tuple(sample_id, files) }
             .set { trimmed_ch }
 

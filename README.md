@@ -35,6 +35,11 @@ The pipeline requires the following input files:
 - `gtf`: Path to the GTF file (default: `$PWD/data/refGenome/genome.gtf`)
 - `transcripts`: Path to the transcriptome FASTA file (default: `$PWD/data/refGenome/transcript.fasta`)
 
+### Data Prep
+
+Place all your forward and reverse paired-end reads for each genome into a single input folder. Each read pair should follow the naming convention `{sample_name}_1.fastq.gz` for the forward read and `{sample_name}_2.fastq.gz` for the reverse read. Check `data` folder for reference input.
+
+
 ### Running the Pipeline
 
 To run the pipeline with default parameters, use the following command:
