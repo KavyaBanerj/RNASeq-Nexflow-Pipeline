@@ -7,7 +7,9 @@ params.reads =  params.reads ?: "$PWD/data/reads/*{1,2}.fastq.gz" // Location of
 params.outdir = params.outdir ?: "$PWD/results" // Output directory
 params.genome = params.genome ?: "$PWD/data/refGenome/genome.fasta" // Path to the genome FASTA file
 params.gtf = params.gtf ?: "$PWD/data/refGenome/genome.gtf" // Path to the GTF file
-params.transcripts = params.transcripts ?: "$PWD/data/refGenome/transcript.fasta"  // Path to the transcriptome FASTA file
+params.transcripts = params.transcripts ?: "$PWD/data/refGenome/transcripts.fasta"  // Path to the transcriptome FASTA file
+params.skip_alignment  = params.skip_alignment ?: false
+params.test_mode       = params.test_mode ?: false
 
 // Validate parameter types and provide defaults
 if (!params.containsKey('reads')) {
@@ -26,12 +28,13 @@ if (!file(params.transcripts).exists()) {
 
 // Log
 log.info """\
-RNA-Seq Analysis Pipeline - STARIndex, STARAlign, and Salmon
+RNA-Seq Analysis Pipeline -  FastQC, TrimGalore, STARIndex, STARAlign , Salmon Quantification, and MultiQC
 Reads: ${params.reads}
 Output directory: ${params.outdir}
 Genome: ${params.genome}
 GTF: ${params.gtf}
 Transcripts: ${params.transcripts}
+Test mode : ${params.test_mode}
 """
 
 // Create output directories if they do not exist
@@ -49,7 +52,7 @@ process FastQC {
     tuple val(sample_id), path(reads)
 
     output:
-    path("*_fastqc.zip"), emit: reports
+    tuple val(sample_id), path("*_fastqc.zip"), path("*_fastqc.html"), emit: reports
 
     script:
     """
@@ -69,7 +72,7 @@ process TrimGalore {
     tuple val(sample_id), path(reads)
 
     output:
-    tuple val(sample_id), path("${sample_id}_1_trimmed.fq.gz"), path("${sample_id}_2_trimmed.fq.gz")
+    tuple val(sample_id), path("${sample_id}_1_trimmed.fq.gz"), path("${sample_id}_2_trimmed.fq.gz"), emit: trimmed_reads
 
     script:
     """
@@ -97,14 +100,19 @@ process STARIndex {
     script:
     """
     mkdir -p STARindex
-    STAR --runThreadN ${task.cpus} --runMode genomeGenerate --genomeDir STARindex --genomeFastaFiles ${genome_fasta} --sjdbGTFfile ${gtf_file} --sjdbOverhang 100 --genomeSAindexNbases 11
+    STAR --runThreadN ${task.cpus} \
+    --runMode genomeGenerate \
+    --genomeDir STARindex \
+    --genomeFastaFiles ${genome_fasta} \
+    --sjdbGTFfile ${gtf_file} \
+    --sjdbOverhang 100 \
+    --genomeSAindexNbases 11
     """
 }
 
 // STAR Alignment process for creating aligned bam files
 process STARAlign {
     tag "STARAlign on ${sample_id}"
-    memory '16 GB'
     container 'quay.io/biocontainers/star:2.7.8a--0'
     publishDir "${params.outdir}/aligned", mode: 'copy'
 
@@ -166,7 +174,7 @@ process SalmonQuant {
     tuple val(sample_id), path(transcriptome_bam), path(transcript_file)
 
     output:
-    path("${sample_id}_quant/quant.sf")
+    path("${sample_id}_quant/quant.sf"), emit: quant_results
     path("${sample_id}_quant/aux_info")
     val "${sample_id}"
 
@@ -175,6 +183,37 @@ process SalmonQuant {
     salmon quant -t ${transcript_file} -l A -a ${transcriptome_bam} -o ./${sample_id}_quant --gcBias
 
     echo "Salmon Qauntification completed for ${sample_id}"
+    """
+}
+
+// MultiQC for aggregating reports
+process MultiQC {
+    tag "MultiQC"
+    container 'quay.io/biocontainers/multiqc:1.11--pyhdfd78af_0'
+    publishDir "${params.outdir}/multiqc", mode: 'copy'
+
+    input:
+    path qc_reports
+
+    output:
+    path("multiqc_report.html"), emit: multiqc_report
+
+    script:
+    """
+    set -e
+    multiqc ${qc_reports} -o ./
+    """
+}
+
+// TestProcess for validation
+process TestProcess {
+    tag 'TestProcess'
+    publishDir "${params.outdir}/test_output", mode: 'copy'
+
+    script:
+    """
+    set -e
+    echo "This is a test process to verify pipeline setup." > test_output.txt
     """
 }
 

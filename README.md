@@ -99,3 +99,6 @@ The pipeline uses the following software containers from [Biocontainers](https:/
 - **Salmon**: `quay.io/biocontainers/salmon:1.10.3--hb7e2ac5_1`
 
 Ensure these containers are available in your Docker environment.
+
+## Reference Data 
+Subset of reads obtained from [here](https://bioinfogp.cnb.csic.es/files/samples/rnaseq/)
